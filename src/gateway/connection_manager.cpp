@@ -1,6 +1,13 @@
 #include "connection_manager.h"
 #include "websocket_session.h"
 #include <spdlog/spdlog.h>
+#include "packet.h"
+
+#ifdef _WIN32
+#include <winsock2.h>
+#else
+#include <arpa/inet.h>
+#endif
 
 void ConnectionManager::Join(int64_t user_id, std::shared_ptr<WebsocketSession> session) {
     std::lock_guard<std::mutex> lock(mtx_);
@@ -35,11 +42,11 @@ void ConnectionManager::KickUser(int64_t user_id, const std::string& device) {
     if (users_.count(user_id)) {
         for (auto& session : users_[user_id]) {
             if (device.empty() || session->GetDevice() == device) {
-                // Send Kick Notify
-                session->Send("KICKED"); // Simple Protocol for now
-                // Delay close slightly to ensure send? async_write queues it.
-                // But Close() calls async_close which sends a Close Frame.
-                session->Close();
+                // Send Kick Notify (CMD_LOGOUT_RESP with reason 1=Kicked)
+                // Use session->Kick() for graceful close
+                session->Kick();
+                
+                spdlog::info("Kicked user {} device {}", user_id, session->GetDevice());
             }
         }
     }

@@ -25,6 +25,7 @@ public:
     bool HSet(const std::string& key, const std::string& field, const std::string& value);
     std::string HGet(const std::string& key, const std::string& field);
     bool HDel(const std::string& key, const std::string& field);
+    std::unordered_map<std::string, std::string> HGetAll(const std::string& key);
 
     // Pub/Sub
     bool Publish(const std::string& channel, const std::string& message);

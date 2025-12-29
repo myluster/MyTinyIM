@@ -1,7 +1,13 @@
 syntax = "proto3";
 package tinyim.chat;
 
-option go_package = "./pb";
+enum MsgType {
+  TEXT = 0;
+  IMAGE = 1;
+  FILE = 2;
+  SYSTEM = 3;      // 系统消息
+  FRIEND_REQ = 4;  // 好友申请
+}
 
 service ChatService {
   // 发送消息 (写扩散: 存 Body -> 存 Index -> 尝试推送)
@@ -14,7 +20,9 @@ service ChatService {
 message SendMessageReq {
   int64 sender_id = 1;
   int64 receiver_id = 2;
-  string content = 3;
+  int64 group_id = 3; // 0 = 单聊, >0 = 群聊
+  MsgType type = 4;
+  string content = 5; // 如果是 Image/File，这里可能是 URL 或 JSON
 }
 
 message SendMessageResp {
@@ -22,24 +30,34 @@ message SendMessageResp {
   int64 seq_id = 2;      // 接收者信箱的 SeqID (用于调试或回执)
   bool success = 3;
   string error_message = 4;
+  int64 timestamp = 5;
 }
 
 message SyncMessagesReq {
   int64 user_id = 1;
   int64 local_seq = 2;   // 客户端当前的最新 seq
   int32 limit = 3;       // 拉取条数
+  bool reverse = 4;      // true = Get latest messages (DESC), false = Get history (ASC)
 }
 
 message MessageItem {
   int64 msg_id = 1;
   int64 seq_id = 2;
   int64 sender_id = 3;
-  string content = 4;
-  string created_at = 5;
+  int64 group_id = 4;
+  MsgType type = 5;
+  string content = 6;
+  string created_at = 7;
 }
 
 message SyncMessagesResp {
   int64 max_seq = 1;            // 服务端最新 seq
   repeated MessageItem msgs = 2;
   bool success = 3;
+}
+
+// 推送给客户端的 Notify 包 (对应 CMD_MSG_PUSH_NOTIFY)
+message MsgPushNotify {
+  int64 max_seq = 1;
+  MsgType type = 2;
 }

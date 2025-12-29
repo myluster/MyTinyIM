@@ -23,6 +23,10 @@ echo -e "${GREEN}[Run] Starting Chat Server...${RESET}"
 ./src/chat_server/chat_server &
 CHAT_PID=$!
 
+echo -e "${GREEN}[Run] Starting User Server...${RESET}"
+./src/user_server/user_server &
+USER_PID=$!
+
 echo -e "${GREEN}[Run] Starting Gateway Server...${RESET}"
 ./src/gateway/gateway_server &
 GATEWAY_PID=$!
@@ -30,6 +34,7 @@ GATEWAY_PID=$!
 echo -e "${GREEN}[Ready] Services are running in background.${RESET}"
 echo "Auth Server PID: $AUTH_PID"
 echo "Chat Server PID: $CHAT_PID"
+echo "User Server PID: $USER_PID"
 echo "Gateway Server PID: $GATEWAY_PID"
 
 # Wait for processes

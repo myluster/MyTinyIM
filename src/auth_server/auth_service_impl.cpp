@@ -108,6 +108,17 @@ Status AuthServiceImpl::Login(ServerContext* context, const tinyim::auth::LoginR
     std::string session_key = "im:session:" + std::to_string(user_id);
     
     // Kick-out logic (Mutual Exclusion for same device type)
+    std::string loc_key = "im:location:" + std::to_string(user_id);
+    std::string existing_addr = RedisClient::GetInstance().HGet(loc_key, device);
+    
+    if (!existing_addr.empty()) {
+        // Publish Kick Event
+        std::string msg = std::to_string(user_id) + ":" + device;
+        RedisClient::GetInstance().Publish("im:kick", msg);
+        spdlog::info("Kick event published for user {} device {}", user_id, device);
+        
+        // Give a tiny bit of time for Gateway to process? Not strictly necessary as new connection comes later.
+    }
     std::string old_token = RedisClient::GetInstance().HGet(session_key, device);
     if (!old_token.empty()) {
         spdlog::warn("Kick out old session: user={} device={} old_token={}", user_id, device, old_token);

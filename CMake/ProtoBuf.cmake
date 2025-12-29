@@ -26,7 +26,7 @@ function(tinyim_generate_protos TARGET_NAME PROTO_FILES)
             ARGS --grpc_out=${CMAKE_BINARY_DIR}
                  --cpp_out=${CMAKE_BINARY_DIR}
                  -I "${CMAKE_SOURCE_DIR}/protos"
-                 --plugin=protoc-gen-grpc=/usr/bin/grpc_cpp_plugin
+                 --plugin=protoc-gen-grpc=${_GRPC_CPP_PLUGIN_EXECUTABLE}
                  "${ABS_FIL}"
             DEPENDS "${ABS_FIL}"
             COMMENT "Running gRPC C++ protocol buffer compiler on ${FIL}"

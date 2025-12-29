@@ -1,13 +1,26 @@
-add_executable(integration_tests
-    integration_test.cpp
+project(TinyIMTests)
+
+# Generate Protos
+tinyim_generate_protos(relation_protos ${CMAKE_SOURCE_DIR}/protos/relation.proto)
+tinyim_generate_protos(chat_client_protos ${CMAKE_SOURCE_DIR}/protos/chat.proto)
+
+# Create object libraries for proto sources
+add_library(relation_protos_obj OBJECT ${relation_protos_SRCS})
+add_library(chat_client_protos_obj OBJECT ${chat_client_protos_SRCS})
+
+# Integration Test (The Single Test Binary)
+add_executable(integration_test 
+    integration_test.cpp 
+    test_client.cpp
+    $<TARGET_OBJECTS:chat_client_protos_obj>
+    $<TARGET_OBJECTS:relation_protos_obj>
 )
 
-target_link_libraries(integration_tests
+target_link_libraries(integration_test
+    common
+    protobuf::libprotobuf
+    gRPC::grpc++
     GTest::gtest_main
-    Boost::system
-    Boost::thread
     spdlog::spdlog
+    Boost::system
 )
-
-# 确保能找到 common 里的库或者直接使用 HTTP/WS client 代码
-# 这里为了简化，我们直接在测试代码里写简易的 Beast Client

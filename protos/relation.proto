@@ -1,0 +1,99 @@
+syntax = "proto3";
+package tinyim.relation;
+
+option go_package = "./pb";
+
+service RelationService {
+  // 申请加好友
+  rpc ApplyFriend (ApplyFriendReq) returns (ApplyFriendResp);
+  
+  // 同意/拒绝加好友
+  rpc AcceptFriend (AcceptFriendReq) returns (AcceptFriendResp);
+  
+  // 获取好友列表
+  rpc GetFriendList (GetFriendListReq) returns (GetFriendListResp);
+
+  // --- Group ---
+  rpc CreateGroup (CreateGroupReq) returns (CreateGroupResp);
+  rpc JoinGroup (JoinGroupReq) returns (JoinGroupResp);
+  rpc GetGroupList (GetGroupListReq) returns (GetGroupListResp);
+}
+
+message ApplyFriendReq {
+  int64 user_id = 1;        // 申请人
+  int64 friend_id = 2;      // 目标用户
+  string remark = 3;        // 备注/验证信息
+}
+
+message ApplyFriendResp {
+  bool success = 1;
+  string error_message = 2;
+  int64 apply_id = 3;       // 申请记录ID
+}
+
+message AcceptFriendReq {
+  int64 user_id = 1;        // 操作人 (即被申请人)
+  int64 apply_id = 2;       // 申请记录ID (或者直接传 friend_id)
+  int64 requester_id = 3;   // 申请人ID (为了方便查库)
+  bool accept = 4;          // true=同意, false=拒绝
+}
+
+message AcceptFriendResp {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message GetFriendListReq {
+  int64 user_id = 1;
+}
+
+message FriendInfo {
+  int64 user_id = 1;
+  string nickname = 2;
+  string remark = 3;
+  string avatar_url = 4;
+}
+
+message GetFriendListResp {
+  repeated FriendInfo friends = 1;
+  bool success = 2;
+}
+
+// --- Group Messages ---
+
+message CreateGroupReq {
+  int64 owner_id = 1;
+  string group_name = 2;
+  repeated int64 initial_members = 3;
+}
+
+message CreateGroupResp {
+  int64 group_id = 1;
+  bool success = 2;
+  string error_message = 3;
+}
+
+message JoinGroupReq {
+  int64 user_id = 1;
+  int64 group_id = 2;
+}
+
+message JoinGroupResp {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message GetGroupListReq {
+  int64 user_id = 1;
+}
+
+message GroupInfo {
+  int64 group_id = 1;
+  string group_name = 2;
+  int64 owner_id = 3;
+}
+
+message GetGroupListResp {
+  repeated GroupInfo groups = 1;
+  bool success = 2;
+}

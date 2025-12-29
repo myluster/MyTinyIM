@@ -48,6 +48,7 @@ start_service() {
 # Format: start_service "dir_name_in_src" "binary_name" "args"
 start_service "auth_server" "auth_server" || exit 1
 start_service "chat_server" "chat_server" || exit 1
+start_service "user_server" "user_server" || exit 1
 sleep 1 # Wait for internal gRPCs if needed
 
 # Start Multiple Gateways
@@ -64,6 +65,7 @@ if pgrep -f "gateway_server" > /dev/null; then
     echo "[SUCCESS] Services are UP!"
     echo "   - Auth Server:    Listening..."
     echo "   - Chat Server:    Listening..."
+    echo "   - User Server:    Listening..."
     echo "   - Gateway Server: Port 8080"
 else
     echo "[WARN] Gateway server does not seem to be running."

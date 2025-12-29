@@ -81,16 +81,66 @@ echo "   -> File: $FILE | Position: $POS"
 
 # 5. Configure Slaves
 configure_slave() {
+    local host=$1
     log_info "Configuring Slave: $host"
+    
+    # Step 1: Wait for MySQL to be accessible
     wait_for_mysql "$host" || return 1
     
-    # Ensure Slave has schema too (Since we sync from POST-init position)
+    # Step 2: Additional health check - verify MySQL can execute queries
+    log_info "Verifying MySQL health on $host..."
+    local health_retries=5
+    local health_count=0
+    while [ $health_count -lt $health_retries ]; do
+        if mysql -h "$host" -u"$USER" -p"$PASS" -e "SELECT 1;" > /dev/null 2>&1; then
+            log_success "MySQL on $host is healthy"
+            break
+        fi
+        ((health_count++))
+        if [ $health_count -lt $health_retries ]; then
+            log_warn "Health check failed, retrying ($health_count/$health_retries)..."
+            sleep 2
+        else
+            log_error "MySQL on $host failed health check"
+            return 1
+        fi
+    done
+    
+    # Step 3: Initialize database schema with retry logic
     if [ -f "/app/sql/init.sql" ]; then
         log_info "Initializing Slave schema on $host..."
-        mysql -h "$host" -u"$USER" -p"$PASS" < /app/sql/init.sql
+        
+        local max_retries=3
+        local retry=0
+        while [ $retry -lt $max_retries ]; do
+            if mysql -h "$host" -u"$USER" -p"$PASS" < /app/sql/init.sql 2>&1; then
+                log_success "Slave schema initialized on $host"
+                
+                # Step 4: Verify database was created
+                sleep 1
+                if mysql -h "$host" -u"$USER" -p"$PASS" -e "USE tinyim; SELECT 1;" > /dev/null 2>&1; then
+                    log_success "Database 'tinyim' verified on $host"
+                    break
+                else
+                    log_warn "Database created but verification failed, retrying..."
+                    ((retry++))
+                fi
+            else
+                ((retry++))
+                if [ $retry -lt $max_retries ]; then
+                    log_warn "Slave init failed on $host, retrying ($retry/$max_retries)..."
+                    sleep 3
+                else
+                    log_error "Failed to initialize slave schema on $host after $max_retries attempts"
+                fi
+            fi
+        done
     fi
 
+    # Step 5: Configure replication
+    log_info "Setting up replication for $host..."
     mysql -h "$host" -u"$USER" -p"$PASS" -e "STOP SLAVE; CHANGE MASTER TO MASTER_HOST='$MASTER_HOST', MASTER_USER='$REP_USER', MASTER_PASSWORD='$REP_PASS', MASTER_LOG_FILE='$FILE', MASTER_LOG_POS=$POS; START SLAVE;"
+    
     log_success "Slave $host configured."
 }
 

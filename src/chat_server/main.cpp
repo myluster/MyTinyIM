@@ -4,8 +4,10 @@
 #include "db_pool.h"
 #include "redis_client.h"
 
-void RunServer() {
-    std::string server_address("0.0.0.0:50052");
+#include "service_registry.h" // Added
+
+void RunServer(int port) {
+    std::string server_address = "0.0.0.0:" + std::to_string(port);
     ChatServiceImpl service;
 
     grpc::ServerBuilder builder;
@@ -27,6 +29,18 @@ void RunServer() {
 }
 
 int main(int argc, char** argv) {
-    RunServer();
+    // Parse port from args or default
+    int port = 50052;
+    if (argc > 1) port = std::atoi(argv[1]);
+    
+    // Init Service Registry
+    // We need to Init Redis first
+    RedisClient::GetInstance().Init("tinyim_redis", 6379);
+    
+    // Register Self
+    // Use actual IP in production, here assume local or container IP
+    ServiceRegistry::GetInstance().Register("chat", "127.0.0.1", port);
+    
+    RunServer(port);
     return 0;
 }

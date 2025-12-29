@@ -6,6 +6,8 @@
 #include "db_pool.h"
 #include "redis_client.h"
 #include "connection_manager.h" // Added
+#include "gateway_service_impl.h" // Added
+#include "service_registry.h" // Added
 
 // Note: In real Microservices, Gateway shouldn't touch DB directly.
 // But for "Dispatch Service" part (Login/Register), it might need gRPC to AuthServer.
@@ -42,24 +44,24 @@ int main(int argc, char* argv[]) {
         });
         subscribe_thread.detach(); 
 
-        // --- Service Registry Heartbeat ---
-        std::thread heartbeat_thread([port, gateway_id]() {
-            std::string key = "im:gateway:" + std::to_string(port);
-            // In Docker/Local env, we use 127.0.0.1 for now since test runs in same net
-            std::string value = "127.0.0.1:" + std::to_string(port);
-            while(true) {
-                // SET key value EX 5
-                // We need a SetEx method in RedisClient or use raw command
-                // RedisClient currently only has HSet/Get/Publish. We need to add Set/Expire or raw.
-                // Looking at RedisClient.h, do we have SetEx? 
-                // Let's check view_file first? Assuming we might need to add it.
-                // For now, use HSet in a common hash? No, TTL is better.
-                // Let's assume we implement a generic Execute or just add SetEx.
-                RedisClient::GetInstance().SetEx(key, value, 5);
-                std::this_thread::sleep_for(std::chrono::seconds(3));
-            }
-        });
-        heartbeat_thread.detach();
+        // Create gRPC Server
+        std::string grpc_address = "0.0.0.0:" + std::to_string(port + 10000); // 8080 -> 18080
+        GatewayServiceImpl gateway_service;
+        
+        grpc::ServerBuilder builder;
+        builder.AddListeningPort(grpc_address, grpc::InsecureServerCredentials());
+        builder.RegisterService(&gateway_service);
+        std::unique_ptr<grpc::Server> grpc_server(builder.BuildAndStart());
+        
+        spdlog::info("[{}] Gateway RPC Server running on {}", gateway_id, grpc_address);
+        
+        // --- Service Registry ---
+        // Register myself
+        // Use 127.0.0.1 for local discovery
+        ServiceRegistry::GetInstance().Register("gateway", "127.0.0.1", port);
+        
+        // Start Observing Gateways (for Load Balancing)
+        ServiceRegistry::GetInstance().Observe("gateway");
 
         // Start the server
         std::make_shared<Server>(ioc, tcp::endpoint{address, port})->Run();

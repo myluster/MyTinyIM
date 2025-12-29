@@ -5,6 +5,7 @@
 #include "redis_client.h"
 #include <grpcpp/grpcpp.h>
 #include "auth.grpc.pb.h"
+#include "service_registry.h"
 
 using json = nlohmann::json;
 
@@ -160,17 +161,17 @@ void HttpSession::HandleRequest() {
 
             json resp_json;
             if (status.ok() && rpc_resp.success()) {
+                // Store token in Redis for WebSocket authentication
+                std::string session_key = "im:session:" + std::to_string(rpc_resp.user_id());
+                std::string device = body.value("device", "PC");
+                RedisClient::GetInstance().HSet(session_key, device, rpc_resp.token());
+                
                 // LB Logic
                 std::string gateway_url = "ws://127.0.0.1:8080/ws"; // fallback
                 try {
-                    auto keys = RedisClient::GetInstance().Keys("im:gateway:*");
-                    if (!keys.empty()) {
-                        static std::random_device rd;
-                        static std::mt19937 gen(rd());
-                        std::uniform_int_distribution<> dis(0, keys.size() - 1);
-                        std::string addr = RedisClient::GetInstance().Get(keys[dis(gen)]);
-                        if(!addr.empty()) gateway_url = "ws://" + addr + "/ws";
-                    }
+                    // Uses Local Cache + Round Robin
+                    std::string addr = ServiceRegistry::GetInstance().Discover("gateway");
+                    if(!addr.empty()) gateway_url = "ws://" + addr + "/ws";
                 } catch(...) {
                     spdlog::error("LB Selection failed");
                 }

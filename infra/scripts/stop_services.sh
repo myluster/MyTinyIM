@@ -3,7 +3,7 @@
 echo "[INFO] Stopping TinyIM Services..."
 
 # Define service names
-SERVICES=("auth_server" "chat_server" "gateway_server")
+SERVICES=("auth_server" "chat_server" "user_server" "gateway_server")
 
 for service in "${SERVICES[@]}"; do
     if pgrep -f "$service" > /dev/null; then

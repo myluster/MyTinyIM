@@ -1,0 +1,37 @@
+syntax = "proto3";
+package tinyim.gateway;
+
+option go_package = "./pb";
+
+import "chat.proto";
+
+// Gateway 提供的内部 RPC 服务
+service GatewayService {
+  // 推送通知 (ChatServer -> Gateway -> Client)
+  rpc PushNotify (PushNotifyReq) returns (PushNotifyResp);
+  
+  // 踢用户下线
+  rpc KickUser (KickUserReq) returns (KickUserResp);
+}
+
+message PushNotifyReq {
+  int64 user_id = 1;     // 目标用户
+  int64 max_seq = 2;     // 最新 SeqID (如果是消息通知)
+  tinyim.chat.MsgType msg_type = 3; // 消息类型，用于客户端判断是否需要拉取
+  string payload = 4;    // 可选：透传内容
+}
+
+message PushNotifyResp {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message KickUserReq {
+  int64 user_id = 1;
+  string device = 2;
+  string reason = 3;
+}
+
+message KickUserResp {
+  bool success = 1;
+}

@@ -45,3 +45,52 @@ CREATE TABLE IF NOT EXISTS `im_message_index` (
   UNIQUE KEY `uk_owner_seq` (`owner_id`, `seq_id`), -- 核心索引：同步拉取用
   KEY `idx_owner_other` (`owner_id`, `other_id`, `created_at`) -- 辅助索引：查历史记录用
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户消息信箱表(Timeline)';
+
+-- ========================================================
+-- 4. 好友关系表
+-- ========================================================
+CREATE TABLE IF NOT EXISTS `im_relation` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` BIGINT UNSIGNED NOT NULL COMMENT 'Owner',
+  `friend_id` BIGINT UNSIGNED NOT NULL COMMENT 'Friend',
+  `status` TINYINT NOT NULL DEFAULT 1 COMMENT '1-正常, 2-拉黑, 3-删除',
+  `remark` VARCHAR(64) DEFAULT '',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_user_friend` (`user_id`, `friend_id`),
+  KEY `idx_friend_id` (`friend_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户好友关系表(双向)';
+
+CREATE TABLE IF NOT EXISTS `im_friend_request` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` BIGINT UNSIGNED NOT NULL COMMENT '申请人',
+  `friend_id` BIGINT UNSIGNED NOT NULL COMMENT '目标用户',
+  `remark` VARCHAR(64) DEFAULT '',
+  `status` TINYINT NOT NULL DEFAULT 0 COMMENT '0-待处理, 1-已同意, 2-已拒绝',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_friend_status` (`friend_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='好友申请记录表';
+
+-- ========================================================
+-- 5. 群组表
+-- ========================================================
+CREATE TABLE IF NOT EXISTS `im_group` (
+  `group_id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `group_name` VARCHAR(64) NOT NULL DEFAULT '',
+  `owner_id` BIGINT UNSIGNED NOT NULL COMMENT '群主ID',
+  `announcement` VARCHAR(256) DEFAULT '',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`group_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='群组基础表';
+
+CREATE TABLE IF NOT EXISTS `im_group_member` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `group_id` BIGINT UNSIGNED NOT NULL,
+  `user_id` BIGINT UNSIGNED NOT NULL,
+  `role` TINYINT DEFAULT 1 COMMENT '1-普通成员, 2-群主, 3-管理员',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_group_user` (`group_id`, `user_id`),
+  KEY `idx_user_id` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='群成员列表';

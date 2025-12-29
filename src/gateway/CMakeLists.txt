@@ -1,8 +1,26 @@
+tinyim_generate_protos(auth_client_protos
+    ${CMAKE_SOURCE_DIR}/protos/auth.proto
+)
+tinyim_generate_protos(chat_client_protos
+    ${CMAKE_SOURCE_DIR}/protos/chat.proto
+)
+tinyim_generate_protos(gateway_protos
+    ${CMAKE_SOURCE_DIR}/protos/gateway.proto
+)
+tinyim_generate_protos(relation_protos
+    ${CMAKE_SOURCE_DIR}/protos/relation.proto
+)
+
 add_executable(gateway_server
     main.cpp
     http_session.cpp
     websocket_session.cpp
     connection_manager.cpp
+    gateway_service_impl.cpp
+    ${auth_client_protos_SRCS}
+    ${chat_client_protos_SRCS}
+    ${gateway_protos_SRCS}
+    ${relation_protos_SRCS}
 )
 
 target_link_libraries(gateway_server
@@ -12,16 +30,4 @@ target_link_libraries(gateway_server
     spdlog::spdlog
     Boost::system
     Boost::thread
-)
-
-tinyim_generate_protos(auth_client_protos
-    ${CMAKE_SOURCE_DIR}/protos/auth.proto
-)
-tinyim_generate_protos(chat_client_protos
-    ${CMAKE_SOURCE_DIR}/protos/chat.proto
-)
-
-target_link_libraries(gateway_server
-    ${auth_client_protos_SRCS}
-    ${chat_client_protos_SRCS}
 )

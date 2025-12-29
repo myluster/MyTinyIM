@@ -1,6 +1,7 @@
 add_library(common
     db_pool.cpp
     redis_client.cpp
+    service_registry.cpp
 )
 
 # Use PkgConfig to find non-cmake packages

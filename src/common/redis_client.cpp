@@ -158,6 +158,24 @@ bool RedisClient::HDel(const std::string& key, const std::string& field) {
     return true;
 }
 
+std::unordered_map<std::string, std::string> RedisClient::HGetAll(const std::string& key) {
+    std::unordered_map<std::string, std::string> res;
+    RedisConn conn;
+    if (!conn.get()) return res;
+    redisReply* reply = (redisReply*)redisCommand(conn.get(), "HGETALL %s", key.c_str());
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ARRAY) {
+            for (size_t i = 0; i < reply->elements; i += 2) {
+                if (i+1 < reply->elements && reply->element[i]->str && reply->element[i+1]->str) {
+                    res[reply->element[i]->str] = reply->element[i+1]->str;
+                }
+            }
+        }
+        freeReplyObject(reply);
+    }
+    return res;
+}
+
 bool RedisClient::Publish(const std::string& channel, const std::string& message) {
     RedisConn conn;
     if (!conn.get()) return false;
