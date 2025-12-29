@@ -1,0 +1,124 @@
+version: '3.8'
+
+services:
+  # C++ 开发环境
+  dev:
+    build:
+      context: ../../
+      dockerfile: infra/docker/Dockerfile
+    image: tinyim_dev:v1
+    container_name: tinyim_dev
+    volumes:
+      - ../../:/app
+    environment:
+      - TZ=Asia/Shanghai
+    tty: true
+    stdin_open: true
+    depends_on:
+      - mysql-master
+      - mysql-slave-1
+      - mysql-slave-2
+      - redis
+      - etcd
+    networks:
+      - tinyim_net
+
+  # MySQL Master (主库 - 写) - Port 3306
+  mysql-master:
+    image: mysql:8.0
+    container_name: tinyim_mysql_master
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: tinyim
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_master_data:/var/lib/mysql
+      - ../../sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    command: --default-authentication-plugin=mysql_native_password --server-id=1 --log-bin=mysql-bin --binlog-format=ROW
+    networks:
+      - tinyim_net
+
+  # MySQL Slave 1 (从库1 - 读) - Port 3307
+  mysql-slave-1:
+    image: mysql:8.0
+    container_name: tinyim_mysql_slave_1
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      TZ: Asia/Shanghai
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_slave_1_data:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password --server-id=2 --relay-log=mysql-relay-bin --read_only=1
+    depends_on:
+      - mysql-master
+    networks:
+      - tinyim_net
+
+  # MySQL Slave 2 (从库2 - 读) - Port 3308
+  mysql-slave-2:
+    image: mysql:8.0
+    container_name: tinyim_mysql_slave_2
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      TZ: Asia/Shanghai
+    ports:
+      - "3308:3306"
+    volumes:
+      - mysql_slave_2_data:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password --server-id=3 --relay-log=mysql-relay-bin --read_only=1
+    depends_on:
+      - mysql-master
+    networks:
+      - tinyim_net
+
+  # Redis
+  redis:
+    image: redis:7.0
+    container_name: tinyim_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - tinyim_net
+
+  # Etcd
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.9
+    container_name: tinyim_etcd
+    environment:
+      - ETCD_ADVERTISE_CLIENT_URLS=http://tinyim_etcd:2379
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+    ports:
+      - "2379:2379"
+    networks:
+      - tinyim_net
+
+  # 自动化运维工具 (一次性运行，配置主从复制)
+  ops-setup:
+    image: mysql:8.0
+    container_name: tinyim_setup
+    # 不启动 MySQL 服务，只作为客户端运行脚本
+    entrypoint: ["bash", "-c", "chmod +x /setup.sh && /setup.sh"]
+    volumes:
+      - ./setup.sh:/setup.sh
+      - ../../sql:/app/sql
+    depends_on:
+      - mysql-master
+      - mysql-slave-1
+      - mysql-slave-2
+    networks:
+      - tinyim_net
+
+networks:
+  tinyim_net:
+    driver: bridge
+
+volumes:
+  mysql_master_data:
+  mysql_slave_1_data:
+  mysql_slave_2_data:
+  redis_data:

@@ -1,0 +1,45 @@
+syntax = "proto3";
+package tinyim.chat;
+
+option go_package = "./pb";
+
+service ChatService {
+  // 发送消息 (写扩散: 存 Body -> 存 Index -> 尝试推送)
+  rpc SendMessage (SendMessageReq) returns (SendMessageResp);
+  
+  // 消息同步 (拉取 Timeline)
+  rpc SyncMessages (SyncMessagesReq) returns (SyncMessagesResp);
+}
+
+message SendMessageReq {
+  int64 sender_id = 1;
+  int64 receiver_id = 2;
+  string content = 3;
+}
+
+message SendMessageResp {
+  int64 msg_id = 1;      // 全局消息ID
+  int64 seq_id = 2;      // 接收者信箱的 SeqID (用于调试或回执)
+  bool success = 3;
+  string error_message = 4;
+}
+
+message SyncMessagesReq {
+  int64 user_id = 1;
+  int64 local_seq = 2;   // 客户端当前的最新 seq
+  int32 limit = 3;       // 拉取条数
+}
+
+message MessageItem {
+  int64 msg_id = 1;
+  int64 seq_id = 2;
+  int64 sender_id = 3;
+  string content = 4;
+  string created_at = 5;
+}
+
+message SyncMessagesResp {
+  int64 max_seq = 1;            // 服务端最新 seq
+  repeated MessageItem msgs = 2;
+  bool success = 3;
+}
