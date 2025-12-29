@@ -8,10 +8,10 @@ TinyIM 是一个基于 C++20 的高性能分布式即时通讯系统，采用微
 
 ```mermaid
 graph TD
-    Client[客户端 (App/Web)] -->|WebSocket| Gateway[Gateway Server 集群]
-    Gateway -->|gRPC| Auth[Auth Server]
-    Gateway -->|gRPC| Chat[Chat Server]
-    Gateway -->|gRPC| Rel[Relation/User Server]
+    Client["客户端 (App/Web)"] -->|WebSocket| Gateway["Gateway Server 集群"]
+    Gateway -->|gRPC| Auth["Auth Server"]
+    Gateway -->|gRPC| Chat["Chat Server"]
+    Gateway -->|gRPC| Rel["Relation/User Server"]
     
     Auth --> Redis[(Redis Cluster)]
     Chat --> Redis
