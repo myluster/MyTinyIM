@@ -13,6 +13,7 @@
 #include <shared_mutex>
 #include <mutex>
 #include <spdlog/spdlog.h>
+#include <ctime>
 
 class ServiceDiscovery {
 public:
@@ -49,10 +50,13 @@ public:
         std::lock_guard<std::shared_mutex> lock(rw_mtx_); // Read Lock
         if (gateway_list_.empty()) return "";
         
-        static std::random_device rd;
-        static std::mt19937 gen(rd());
-        std::uniform_int_distribution<> dis(0, gateway_list_.size() - 1);
+        // Fix: static mt19937 is not thread-safe! Use thread_local.
+        static thread_local std::mt19937 gen(static_cast<unsigned int>(std::time(nullptr) ^ std::hash<std::thread::id>{}(std::this_thread::get_id())));
+        std::uniform_int_distribution<> dis(0, (int)gateway_list_.size() - 1);
         
+        // Debug
+        // std::cerr << "[DEBUG] GetRandomGateway: Count=" << gateway_list_.size() << std::endl;
+
         return gateway_list_[dis(gen)];
     }
     
@@ -77,8 +81,8 @@ private:
         // Optimization: In real prod, modify RedisClient to support Scan.
         
         try {
-            // Find all registered gateways: im:gateway:{ip:port} -> "ip:port" or load
-            auto result = RedisClient::GetInstance().Keys("im:gateway:*");
+            // Find all registered gateways: im:service:gateway:{ip:port} -> "ip:port"
+            auto result = RedisClient::GetInstance().Keys("im:service:gateway:*");
             
             std::vector<std::string> new_list;
             for (const auto& key : result) {

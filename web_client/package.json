@@ -1,0 +1,21 @@
+{
+    "name": "tinyim-web-client",
+    "private": true,
+    "version": "1.0.0",
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "vite build",
+        "preview": "vite preview",
+        "proto": "pbjs -t static-module -w es6 -o src/utils/proto_bundle.js ../protos/*.proto"
+    },
+    "dependencies": {
+        "protobufjs": "^7.2.5",
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0"
+    },
+    "devDependencies": {
+        "@vitejs/plugin-react": "^4.2.1",
+        "vite": "^5.0.0"
+    }
+}

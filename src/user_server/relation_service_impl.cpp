@@ -81,7 +81,7 @@ Status RelationServiceImpl::AcceptFriend(ServerContext* context, const tinyim::r
     if (accept) {
         // Insert Relations (Bidirectional)
         std::stringstream ss;
-        ss << "INSERT INTO im_relation (user_id, friend_id, status) VALUES "
+        ss << "INSERT IGNORE INTO im_relation (user_id, friend_id, status) VALUES "
            << "(" << user_id << "," << requester_id << ",1), "
            << "(" << requester_id << "," << user_id << ",1)";
         

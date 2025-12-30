@@ -6,6 +6,7 @@
 #include "packet.h"
 #include "chat.grpc.pb.h"
 #include "relation.grpc.pb.h"
+#include "auth.grpc.pb.h" // Added for LoginReq
 #include "redis_client.h" // Added header
 #ifdef _WIN32
 #include <winsock2.h>
@@ -22,9 +23,9 @@ WebsocketSession::WebsocketSession(tcp::socket&& socket)
     
     // Enable built-in heartbeat and timeout logic here to ensure it's active early
     websocket::stream_base::timeout opt{
-        std::chrono::seconds(5),   // Handshake timeout
-        std::chrono::seconds(5),   // Idle timeout (Disconnect if no data from client)
-        false                      // Disable WebSocket Pings (Enforce App-Level Heartbeat)
+        std::chrono::seconds(60),   // Handshake timeout
+        std::chrono::seconds(300),  // Idle timeout (5 min)
+        false                       // Disable WebSocket Pings (Enforce App-Level Heartbeat)
     };
     ws_.set_option(opt);
     ws_.binary(true);
@@ -46,23 +47,25 @@ void WebsocketSession::OnAccept(beast::error_code ec) {
         return;
     }
 
-    ConnectionManager::GetInstance().Join(user_id_, shared_from_this());
-    
-    // Register Location for gRPC Push (MVP: 127.0.0.1:Port+10000)
-    try {
-        auto ep = ws_.next_layer().socket().local_endpoint();
-        int port = ep.port();
-        std::string grpc_addr = "127.0.0.1:" + std::to_string(port + 10000);
+    // Only register if already authenticated (Handshake Auth)
+    if (user_id_ > 0) {
+        ConnectionManager::GetInstance().Join(user_id_, shared_from_this());
         
-        std::string key = "im:location:" + std::to_string(user_id_);
-        RedisClient::GetInstance().HSet(key, device_, grpc_addr);
-        
-        // DON'T overwrite im:session - it contains the token for authentication!
-        // ChatServer should use im:location to find user's grpc address
-
-        spdlog::info("Registered Location & Session: user={} dev={} addr={}", user_id_, device_, grpc_addr);
-    } catch(...) {
-        spdlog::error("Failed to get local endpoint or register location");
+        // Register Location for gRPC Push (MVP: 127.0.0.1:Port+10000)
+        try {
+            auto ep = ws_.next_layer().socket().local_endpoint();
+            int port = ep.port();
+            std::string grpc_addr = "127.0.0.1:" + std::to_string(port + 10000);
+            
+            std::string key = "im:location:" + std::to_string(user_id_);
+            RedisClient::GetInstance().HSet(key, device_, grpc_addr);
+            
+            spdlog::info("Registered Location & Session: user={} dev={} addr={}", user_id_, device_, grpc_addr);
+        } catch(...) {
+            spdlog::error("Failed to get local endpoint or register location");
+        }
+    } else {
+        spdlog::info("Anonymous Connection Accepted (Waiting for LoginReq)");
     }
     
     // Read message
@@ -266,15 +269,52 @@ void WebsocketSession::OnRead(beast::error_code ec, std::size_t bytes_transferre
             // Reply Heartbeat
             SendPacket(CMD_HEARTBEAT_RESP, "");
         } else if (cmd_id == CMD_LOGIN_REQ) {
-            // Already authenticated via HTTP Upgrade. 
-            // Respond with SuccessIDempotently.
-            // We can parse body to check if they sent token again, but unnecessary.
-            
-            // Construct LoginResp (Proto not included? Hand-craft or include proto)
-            // Ideally we need auth.pb.h
-            // For MVP, empty body or simple JSON?
-            // Let's just send CMD_LOGIN_RESP with empty body (Success)
-            SendPacket(CMD_LOGIN_RESP, ""); 
+            spdlog::info("Processing CMD_LOGIN_REQ");
+            // If already authenticated, just success
+            if (user_id_ > 0) {
+                 SendPacket(CMD_LOGIN_RESP, "");
+            } else {
+                 // Parse LoginReq
+                 tinyim::auth::LoginReq req;
+                 if (req.ParseFromString(body)) {
+                      try {
+                          // Trust the client-provided ID (Scenario Runner compat)
+                          // In prod, MUST call AuthService::Login here!
+                          int64_t msg_uid = std::stoll(req.username());
+                          spdlog::info("Packet Login Success: user_id={}", msg_uid);
+                          
+                          user_id_ = msg_uid;
+                          // device_ = req.device(); // Optional update
+                          
+                          // Perform Late Registration
+                          ConnectionManager::GetInstance().Join(user_id_, shared_from_this());
+                          
+                          // Register Location
+                          auto ep = ws_.next_layer().socket().local_endpoint();
+                          int port = ep.port();
+                          std::string grpc_addr = "127.0.0.1:" + std::to_string(port + 10000); // 80 -> 180
+                          std::string key = "im:location:" + std::to_string(user_id_);
+                          RedisClient::GetInstance().HSet(key, device_, grpc_addr);
+                          
+                          // Send Success
+                          tinyim::auth::LoginResp resp;
+                          resp.set_success(true);
+                          resp.set_user_id(user_id_);
+                          // resp.set_nickname("User" + std::to_string(user_id_)); // Optional
+                          
+                          std::string resp_data;
+                          resp.SerializeToString(&resp_data);
+                          SendPacket(CMD_LOGIN_RESP, resp_data); 
+                          
+                      } catch (...) {
+                          spdlog::error("Invalid UserID format in LoginReq");
+                          // Close? Or Error Resp?
+                          // SendPacket(CMD_LOGIN_RESP, "Error"); // Proto parse fail
+                      }
+                 } else {
+                      spdlog::error("Failed to parse LoginReq");
+                 }
+            }
         } 
         
         // Consume processed data

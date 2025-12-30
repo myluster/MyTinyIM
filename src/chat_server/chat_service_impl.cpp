@@ -159,8 +159,9 @@ Status ChatServiceImpl::SendMessage(ServerContext* context, const tinyim::chat::
                               " AND friend_id=" + std::to_string(receiver_id);
         
         bool is_friend = false;
-        if (mysql_query(read_conn.get(), sql_rel.c_str()) == 0) {
-             MYSQL_RES* res = mysql_store_result(read_conn.get());
+        // Use Master (conn) to avoid replication lag
+        if (mysql_query(conn.get(), sql_rel.c_str()) == 0) {
+             MYSQL_RES* res = mysql_store_result(conn.get());
              if (res) {
                  MYSQL_ROW row = mysql_fetch_row(res);
                  if (row && std::stol(row[0]) == 1) {
@@ -199,7 +200,7 @@ Status ChatServiceImpl::SendMessage(ServerContext* context, const tinyim::chat::
         }
         
         // Push
-        std::string status_key = "im:session:" + std::to_string(receiver_id);
+        std::string status_key = "im:location:" + std::to_string(receiver_id);
         if (RedisClient::GetInstance().Exists(status_key)) {
              std::string loc_key = "im:location:" + std::to_string(receiver_id);
              auto locations = RedisClient::GetInstance().HGetAll(loc_key);

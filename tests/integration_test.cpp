@@ -579,6 +579,9 @@ TEST_F(IntegrationTest, Flow_Group_Chat) {
     // B Sync Group Msg ? (Timeline is mixed? or separate?)
     // In design: Mixed timeline.
     {
+        // Wait for replication if reading from slave
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
         tinyim::chat::SyncMessagesReq req;
         req.set_user_id(clientB.GetUserId());
         req.set_limit(5);
@@ -592,6 +595,13 @@ TEST_F(IntegrationTest, Flow_Group_Chat) {
         bool found = false;
         for(const auto& m : resp.msgs()) {
             if (m.content() == g_msg && m.group_id() == group_id) found = true;
+        }
+        if (!found) {
+            std::cout << "[DEBUG] Expected GroupMsg: '" << g_msg << "', GroupID: " << group_id << std::endl;
+            std::cout << "[DEBUG] Received " << resp.msgs().size() << " messages:" << std::endl;
+            for(const auto& m : resp.msgs()) {
+                std::cout << " - ID:" << m.msg_id() << " GID:" << m.group_id() << " Content:'" << m.content() << "'" << std::endl; 
+            }
         }
         ASSERT_TRUE(found) << "Group message not found";
     }

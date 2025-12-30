@@ -23,6 +23,10 @@ services:
       - etcd
     networks:
       - tinyim_net
+    ports:
+      - "9000:8000"
+      - "9080:9080"
+      - "9081:9081"
 
   # MySQL Master (主库 - 写) - Port 3306
   mysql-master:
@@ -114,23 +118,7 @@ services:
     networks:
       - tinyim_net
 
-  dispatch_server:
-    build:
-      context: ../../
-      dockerfile: infra/docker/Dockerfile
-    image: tinyim_dispatch:v1
-    container_name: tinyim_dispatch
-    command: /app/build/src/dispatch/dispatch_server
-    volumes:
-      - ../../:/app
-      - ../../config.json:/app/config.json
-    ports:
-      - "8000:8000"
-    depends_on:
-      - redis
-      - mysql-master
-    networks:
-      - tinyim_net
+
 
 networks:
   tinyim_net:

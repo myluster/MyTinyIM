@@ -14,6 +14,7 @@
 #include <grpcpp/grpcpp.h>
 #include <nlohmann/json.hpp>
 #include "grpc_channel_pool.h"
+#include <fstream>
 
 namespace beast = boost::beast;         // from <boost/beast.hpp>
 namespace http = beast::http;           // from <boost/beast/http.hpp>
@@ -89,6 +90,7 @@ class HttpSession : public std::enable_shared_from_this<HttpSession> {
     tcp::socket socket_;
     beast::flat_buffer buffer_;
     http::request<http::string_body> req_;
+    http::response<http::string_body> res_; // Member to keep alive during async_write
 
 public:
     HttpSession(tcp::socket socket) : socket_(std::move(socket)) {}
@@ -99,22 +101,43 @@ public:
 
 private:
     void DoRead() {
+        // Clear request for new read
+        req_ = {};
+        
         auto self = shared_from_this();
         http::async_read(socket_, buffer_, req_,
             [self](beast::error_code ec, std::size_t bytes_transferred) {
-                if(!ec) self->ProcessRequest();
+                if(ec == http::error::end_of_stream) {
+                    self->socket_.shutdown(tcp::socket::shutdown_send, ec);
+                    return;
+                }
+                if(ec) return; // Error
+                self->ProcessRequest();
             });
     }
 
     void ProcessRequest() {
-        http::response<http::string_body> res{http::status::ok, req_.version()};
-        res.set(http::field::server, "TinyIM Dispatch");
-        res.set(http::field::content_type, "application/json");
-        res.keep_alive(req_.keep_alive());
+        res_ = {}; // Clear previous response
+        res_.version(req_.version());
+        res_.keep_alive(req_.keep_alive());
+        
+        res_.set(http::field::server, "TinyIM Dispatch");
+        res_.set(http::field::content_type, "application/json");
+        res_.set(http::field::access_control_allow_origin, "*");
+        res_.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
+        res_.set(http::field::access_control_allow_headers, "Content-Type");
+
+        if (req_.method() == http::verb::options) {
+            res_.result(http::status::ok);
+            res_.body() = "";
+            res_.prepare_payload();
+            WriteResponse();
+            return;
+        }
 
         std::string target = std::string(req_.target());
         
-        if (req_.method() == http::verb::post && target == "/login") {
+        if (req_.method() == http::verb::post && target == "/api/login") {
             try {
                 auto json = nlohmann::json::parse(req_.body());
                 std::string u = json.value("username", "");
@@ -126,11 +149,10 @@ private:
                 std::string token = Auth(u, p, d, uid, nick);
                 
                 if (!token.empty()) {
-                    // Auth Success -> Select Gateway
                     std::string gw = ServiceDiscovery::GetInstance().GetRandomGateway();
                     if (gw.empty()) {
-                        res.result(http::status::service_unavailable);
-                        res.body() = R"({"error": "No gateways available"})";
+                        res_.result(http::status::service_unavailable);
+                        res_.body() = R"({"error": "No gateways available"})";
                     } else {
                         nlohmann::json resp_json;
                         resp_json["code"] = 0;
@@ -140,55 +162,106 @@ private:
                             {"nickname", nick},
                             {"gateway_url", "ws://" + gw + "/ws"}
                         };
-                        res.body() = resp_json.dump();
+                        res_.body() = resp_json.dump();
                     }
                 } else {
-                    res.result(http::status::unauthorized);
-                    res.body() = R"({"error": "Invalid credentials"})";
+                    res_.result(http::status::unauthorized);
+                    res_.body() = R"({"error": "Invalid credentials"})";
                 }
             } catch(...) {
-                res.result(http::status::bad_request);
-                res.body() = "Invalid JSON";
+                res_.result(http::status::bad_request);
+                res_.body() = "Invalid JSON";
             }
         }
-        else if (req_.method() == http::verb::post && target == "/logout") {
+        else if (req_.method() == http::verb::post && target == "/api/logout") {
              try {
                 auto json = nlohmann::json::parse(req_.body());
                 int64_t uid = json.value("user_id", 0);
-                std::string dev = json.value("device", ""); // Optional
-                
-                if (uid > 0) {
-                    Logout(uid, dev); // Always success for client
-                }
-                res.body() = R"({"code": 0, "msg": "Logged out"})";
+                std::string dev = json.value("device", "");
+                if (uid > 0) Logout(uid, dev);
+                res_.body() = R"({"code": 0, "msg": "Logged out"})";
              } catch(...) {
-                 res.result(http::status::bad_request);
-                 res.body() = "Invalid JSON";
+                 res_.result(http::status::bad_request);
+                 res_.body() = "Invalid JSON";
              }
         }
-        else if (req_.method() == http::verb::post && target == "/register") {
-             // ... Similar logic for register
+        else if (req_.method() == http::verb::post && target == "/api/register") {
              try {
                 auto json = nlohmann::json::parse(req_.body());
                 if (RegisterUser(json.value("username",""), json.value("password",""), json.value("nickname",""))) {
-                     res.body() = R"({"code": 0, "msg": "Registered"})";
+                     res_.body() = R"({"code": 0, "msg": "Registered"})";
                 } else {
-                     res.body() = R"({"code": 1, "msg": "Register Failed"})";
+                     res_.body() = R"({"code": 1, "msg": "Register Failed"})";
                 }
              } catch(...) {
-                 res.result(http::status::bad_request);
-                 res.body() = "Invalid JSON";
+                 res_.result(http::status::bad_request);
+                 res_.body() = "Invalid JSON";
+             }
+        }
+        else if (req_.method() == http::verb::get && target == "/api/discover/chat") {
+             try {
+                 std::string gw = ServiceDiscovery::GetInstance().GetRandomGateway();
+                 if (gw.empty()) {
+                      res_.result(http::status::service_unavailable);
+                      res_.body() = R"({"error": "No gateways available"})";
+                 } else {
+                      nlohmann::json resp_json;
+                      resp_json["code"] = 0;
+                      resp_json["data"] = {
+                          {"gateway_url", "ws://" + gw + "/ws"}
+                      };
+                      res_.body() = resp_json.dump();
+                 }
+             } catch (const std::exception& e) {
+                 spdlog::error("Error in /api/discover/chat: {}", e.what());
+                 // File Log
+                 std::ofstream err_file("/app/logs/dispatch_err.txt", std::ios::app);
+                 if (err_file) {
+                     err_file << "CRITICAL ERROR: " << e.what() << std::endl;
+                 }
+                 res_.result(http::status::internal_server_error);
+                 res_.body() = std::string("{\"error\": \"") + e.what() + "\"}";
+             } catch (...) {
+                 spdlog::error("Unknown error in /api/discover/chat");
+                 // File Log
+                 std::ofstream err_file("/app/logs/dispatch_err.txt", std::ios::app);
+                 if (err_file) {
+                     err_file << "CRITICAL ERROR: Unknown Exception" << std::endl;
+                 }
+                 res_.result(http::status::internal_server_error);
+                 res_.body() = "{\"error\": \"Unknown\"}";
              }
         }
         else {
-            res.result(http::status::not_found);
-            res.body() = "Not Found";
+            res_.result(http::status::not_found);
+            res_.body() = "Not Found";
         }
         
-        res.prepare_payload();
+        res_.prepare_payload();
+        WriteResponse();
+    }
+    
+    void WriteResponse() {
         auto self = shared_from_this();
-        http::async_write(socket_, res, [self](beast::error_code ec, std::size_t) {
+        http::async_write(socket_, res_, [self](beast::error_code ec, std::size_t) {
             self->socket_.shutdown(tcp::socket::shutdown_send, ec);
+            // In a full implementation, we should check res_.need_eof() to decide whether to shutdown or Loop DoRead().
+            // However, for simplicity and to avoid lingering sockets in this MVP, 
+            // we force close (short-lived connections).
+            // But Vite Proxy sends Keep-Alive and might be upset if we close abruptly without sending Connection: close header?
+            // Let's rely on shutdown sending FIN.
+            // If we want Keep-Alive:
+            // if(!ec && self->res_.keep_alive()) {
+            //    self->DoRead(); 
+            // } else {
+            //    self->socket_.shutdown(tcp::socket::shutdown_send, ec);
+            // }
+            // Given the issues, let's try Proper Keep-Alive now:
+            if(!ec && self->res_.keep_alive()) {
+                self->DoRead();
+            } else {
+                 self->socket_.shutdown(tcp::socket::shutdown_send, ec);
+            }
         });
     }
 };

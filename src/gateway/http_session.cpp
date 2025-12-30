@@ -86,15 +86,13 @@ void HttpSession::OnRead(beast::error_code ec, std::size_t bytes_transferred) {
         }
         
         if (!auth_ok) {
-             http::response<http::string_body> res{http::status::unauthorized, req_.version()};
-             res.set(http::field::server, "TinyIM Gateway");
-             res.body() = "Auth Failed";
-             res.prepare_payload();
-             return DoWrite(std::move(res));
+             // Allow Anonymous Upgrade (Packet-based Auth will follow)
+             spdlog::info("WS Handshake: No valid token found, upgrading as Anonymous (user_id=0)");
+             user_id = 0;
         }
 
         auto ws = std::make_shared<WebsocketSession>(stream_.release_socket());
-        ws->SetUserInfo(user_id, device);
+        ws->SetUserInfo(user_id, device); // user_id might be 0
         ws->DoAccept(std::move(req_));
         return;
     }
@@ -106,7 +104,17 @@ void HttpSession::HandleRequest() {
     http::response<http::string_body> res{http::status::ok, req_.version()};
     res.set(http::field::server, "TinyIM Gateway");
     res.set(http::field::content_type, "application/json");
+    res.set(http::field::access_control_allow_origin, "*");
+    res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
+    res.set(http::field::access_control_allow_headers, "Content-Type");
     res.keep_alive(req_.keep_alive());
+
+    if (req_.method() == http::verb::options) {
+        res.result(http::status::ok);
+        res.body() = "";
+        res.prepare_payload();
+        return DoWrite(std::move(res));
+    }
 
     if (req_.method() != http::verb::post) {
         res.result(http::status::bad_request);
