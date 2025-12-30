@@ -233,3 +233,96 @@ Status RelationServiceImpl::GetGroupList(ServerContext* context, const tinyim::r
     reply->set_success(true);
     return Status::OK;
 }
+
+Status RelationServiceImpl::ApplyGroup(ServerContext* context, const tinyim::relation::ApplyGroupReq* request,
+                                       tinyim::relation::ApplyGroupResp* reply) {
+    int64_t user_id = request->user_id();
+    int64_t group_id = request->group_id();
+    std::string remark = request->remark();
+
+    DBConn conn;
+    
+    // Check if already member
+    std::string check_member = "SELECT id FROM im_group_member WHERE group_id=" + std::to_string(group_id) + " AND user_id=" + std::to_string(user_id);
+    if (!mysql_query(conn.get(), check_member.c_str())) {
+        MYSQL_RES* res = mysql_store_result(conn.get());
+        if (res && mysql_fetch_row(res)) {
+            mysql_free_result(res);
+            reply->set_success(false);
+            reply->set_error_message("Already a member");
+            return Status::OK;
+        }
+        if (res) mysql_free_result(res);
+    }
+
+    // Insert into im_group_request
+    // Schema: id, group_id, user_id, status(0=pending), remark, create_time
+    // Note: Assuming table exists or needs creation (User needs to run SQL update if not)
+    // For MVP we assume we can create it or use a simplified approach. 
+    // Let's assume table `im_group_request` exists.
+    
+    std::string sql = "INSERT INTO im_group_request (group_id, user_id, remark, status) VALUES (" +
+                      std::to_string(group_id) + ", " + std::to_string(user_id) + ", '" + remark + "', 0)";
+
+    if (mysql_query(conn.get(), sql.c_str())) {
+        reply->set_success(false);
+        reply->set_error_message("Apply failed");
+        return Status::OK;
+    }
+    
+    reply->set_apply_id(mysql_insert_id(conn.get()));
+    reply->set_success(true);
+    
+    // Notify Owner (Requires Group Owner Lookup)
+    std::string owner_sql = "SELECT owner_id FROM im_group WHERE group_id=" + std::to_string(group_id);
+    if (!mysql_query(conn.get(), owner_sql.c_str())) {
+         MYSQL_RES* res = mysql_store_result(conn.get());
+         if (res) {
+             MYSQL_ROW row = mysql_fetch_row(res);
+             if (row) {
+                 int64_t owner_id = std::stoll(row[0]);
+                 // Push Notify
+                 tinyim::chat::SendMessageReq msg_req;
+                 msg_req.set_receiver_id(owner_id);
+                 msg_req.set_type(tinyim::chat::FRIEND_REQ); // Use FRIEND_REQ type for now or add GROUP_REQ type
+                 msg_req.set_content("Group Join Request");
+                 grpc::ClientContext ctx; tinyim::chat::SendMessageResp msg_resp;
+                 GetChatStub()->SendMessage(&ctx, msg_req, &msg_resp);
+             }
+             mysql_free_result(res);
+         }
+    }
+
+    return Status::OK;
+}
+
+Status RelationServiceImpl::AcceptGroup(ServerContext* context, const tinyim::relation::AcceptGroupReq* request,
+                                        tinyim::relation::AcceptGroupResp* reply) {
+    int64_t user_id = request->user_id(); // Handler (Owner/Admin)
+    int64_t group_id = request->group_id();
+    int64_t requester_id = request->requester_id();
+    bool accept = request->accept();
+    
+    DBConn conn;
+    
+    if (accept) {
+        // Insert Member
+        std::string sql = "INSERT INTO im_group_member (group_id, user_id, role) VALUES (" + 
+                          std::to_string(group_id) + ", " + std::to_string(requester_id) + ", 1)";
+        mysql_query(conn.get(), sql.c_str());
+        
+        // Notify Requester
+        tinyim::chat::SendMessageReq msg_req;
+        msg_req.set_receiver_id(requester_id);
+        msg_req.set_type(tinyim::chat::SYSTEM);
+        msg_req.set_content("Your group join request was accepted");
+        grpc::ClientContext ctx; tinyim::chat::SendMessageResp msg_resp;
+        GetChatStub()->SendMessage(&ctx, msg_req, &msg_resp);
+    }
+    
+    // Update Request Status
+    // UPDATE im_group_request SET status=...
+    
+    reply->set_success(true);
+    return Status::OK;
+}

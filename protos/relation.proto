@@ -17,6 +17,10 @@ service RelationService {
   rpc CreateGroup (CreateGroupReq) returns (CreateGroupResp);
   rpc JoinGroup (JoinGroupReq) returns (JoinGroupResp);
   rpc GetGroupList (GetGroupListReq) returns (GetGroupListResp);
+  
+  // Group Verification
+  rpc ApplyGroup (ApplyGroupReq) returns (ApplyGroupResp);
+  rpc AcceptGroup (AcceptGroupReq) returns (AcceptGroupResp);
 }
 
 message ApplyFriendReq {
@@ -96,4 +100,29 @@ message GroupInfo {
 message GetGroupListResp {
   repeated GroupInfo groups = 1;
   bool success = 2;
+}
+
+message ApplyGroupReq {
+  int64 user_id = 1;
+  int64 group_id = 2;
+  string remark = 3;
+}
+
+message ApplyGroupResp {
+  bool success = 1;
+  string error_message = 2;
+  int64 apply_id = 3;
+}
+
+message AcceptGroupReq {
+  int64 user_id = 1;      // Owner/Admin
+  int64 apply_id = 2;
+  int64 requester_id = 3;
+  int64 group_id = 4;
+  bool accept = 5;
+}
+
+message AcceptGroupResp {
+  bool success = 1;
+  string error_message = 2;
 }

@@ -75,27 +75,26 @@ void WebsocketSession::DoRead() {
 }
 
 #include "service_registry.h" // Added
+#include "grpc_channel_pool.h"
+#include "config.h"
 
 // gRPC Client Helper
+// gRPC Client Helper
 static std::unique_ptr<tinyim::chat::ChatService::Stub> GetChatStub() {
-    // Dynamic Discovery
-    std::string addr = ServiceRegistry::GetInstance().Discover("chat");
-    if (addr.empty()) {
-        spdlog::error("No Chat Server Available!");
-        // fallback or throw? For now fallback to default
-        addr = "localhost:50052"; 
-    }
+    // Dynamic Discovery via Config or ServiceRegistry
+    // For MVP use Config, default to localhost:50052
+    std::string addr = Config::GetInstance().GetString("chat_service.addr", "127.0.0.1:50052");
     
-    // Note: Creating a new channel for every request is expensive! 
-    // Ideally we should cache stubs/channels in a pool.
-    // For MVP, we at least discover the address.
-    auto channel = grpc::CreateChannel(addr, grpc::InsecureChannelCredentials());
+    // Use Channel Pool
+    auto channel = GRPCChannelPool::GetInstance().GetChannel(addr);
     return tinyim::chat::ChatService::NewStub(channel);
 }
 
 // Relation Client Helper - Moved to outer scope or forward declared
+// Relation Client Helper - Moved to outer scope or forward declared
 static std::unique_ptr<tinyim::relation::RelationService::Stub> GetRelationStub() {
-    static std::shared_ptr<grpc::Channel> channel = grpc::CreateChannel("localhost:50053", grpc::InsecureChannelCredentials());
+    std::string addr = Config::GetInstance().GetString("relation_service.addr", "127.0.0.1:50053");
+    auto channel = GRPCChannelPool::GetInstance().GetChannel(addr);
     return tinyim::relation::RelationService::NewStub(channel);
 }
 
@@ -221,6 +220,26 @@ void WebsocketSession::OnRead(beast::error_code ec, std::size_t bytes_transferre
             GetRelationStub()->GetGroupList(&ctx, req, &resp);
             std::string b; resp.SerializeToString(&b);
             SendPacket(CMD_GROUP_LIST_RESP, b);
+        }
+        else if (cmd_id == CMD_GROUP_APPLY_REQ) {
+            tinyim::relation::ApplyGroupReq req;
+            if(req.ParseFromString(body)) {
+                req.set_user_id(user_id_);
+                grpc::ClientContext ctx; tinyim::relation::ApplyGroupResp resp;
+                GetRelationStub()->ApplyGroup(&ctx, req, &resp);
+                std::string b; resp.SerializeToString(&b);
+                SendPacket(CMD_GROUP_APPLY_RESP, b);
+            }
+        }
+        else if (cmd_id == CMD_GROUP_ACCEPT_REQ) {
+            tinyim::relation::AcceptGroupReq req;
+            if(req.ParseFromString(body)) {
+                req.set_user_id(user_id_);
+                grpc::ClientContext ctx; tinyim::relation::AcceptGroupResp resp;
+                GetRelationStub()->AcceptGroup(&ctx, req, &resp);
+                std::string b; resp.SerializeToString(&b);
+                SendPacket(CMD_GROUP_ACCEPT_RESP, b);
+            }
         }
         else if (cmd_id == CMD_MSG_SYNC_REQ) {
             tinyim::chat::SyncMessagesReq req;

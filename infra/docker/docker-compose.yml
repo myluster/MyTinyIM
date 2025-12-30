@@ -10,6 +10,7 @@ services:
     container_name: tinyim_dev
     volumes:
       - ../../:/app
+      - ../../config.json:/app/config.json
     environment:
       - TZ=Asia/Shanghai
     tty: true
@@ -110,6 +111,24 @@ services:
       - mysql-master
       - mysql-slave-1
       - mysql-slave-2
+    networks:
+      - tinyim_net
+
+  dispatch_server:
+    build:
+      context: ../../
+      dockerfile: infra/docker/Dockerfile
+    image: tinyim_dispatch:v1
+    container_name: tinyim_dispatch
+    command: /app/build/src/dispatch/dispatch_server
+    volumes:
+      - ../../:/app
+      - ../../config.json:/app/config.json
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+      - mysql-master
     networks:
       - tinyim_net
 

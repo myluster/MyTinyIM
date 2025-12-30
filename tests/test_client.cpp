@@ -6,28 +6,34 @@
 using json = nlohmann::json;
 
 // Helper: HTTP POST
-static json HttpPost(const std::string& host, const std::string& port, const std::string& target, const json& body) {
+json HttpPost(const std::string& host, const std::string& port, const std::string& target, const json& body) {
     net::io_context ioc;
     tcp::resolver resolver(ioc);
     beast::tcp_stream stream(ioc);
     
-    auto const results = resolver.resolve(host, port);
-    stream.connect(results);
-    
-    http::request<http::string_body> req{http::verb::post, target, 11};
-    req.set(http::field::host, host);
-    req.set(http::field::content_type, "application/json");
-    req.body() = body.dump();
-    req.prepare_payload();
-    
-    http::write(stream, req);
-    
-    beast::flat_buffer buffer;
-    http::response<http::string_body> res;
-    http::read(stream, buffer, res);
-    
-    stream.socket().shutdown(tcp::socket::shutdown_both);
-    return json::parse(res.body());
+    try {
+        auto const results = resolver.resolve(host, port);
+        stream.connect(results);
+        
+        http::request<http::string_body> req{http::verb::post, target, 11};
+        req.set(http::field::host, host);
+        req.set(http::field::content_type, "application/json");
+        req.body() = body.dump();
+        req.prepare_payload();
+        
+        http::write(stream, req);
+        
+        beast::flat_buffer buffer;
+        http::response<http::string_body> res;
+        http::read(stream, buffer, res);
+        
+        boost::system::error_code ec;
+        stream.socket().shutdown(tcp::socket::shutdown_both, ec);
+        return json::parse(res.body());
+    } catch(std::exception& e) {
+        spdlog::error("HttpPost Error: {}", e.what());
+        return {{"code", -1}, {"msg", e.what()}};
+    }
 }
 
 TestClient::TestClient(const std::string& host, const std::string& http_port, const std::string& ws_port)

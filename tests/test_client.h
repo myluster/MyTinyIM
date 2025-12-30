@@ -11,6 +11,7 @@
 #include <boost/asio.hpp>
 #include "packet.h"
 #include <google/protobuf/message.h>
+#include <nlohmann/json.hpp>
 
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -85,3 +86,6 @@ private:
     std::atomic<bool> running_{false};
     bool enable_heartbeat_ = true;
 };
+
+// Helper for standalone HTTP requests
+nlohmann::json HttpPost(const std::string& host, const std::string& port, const std::string& target, const nlohmann::json& body);

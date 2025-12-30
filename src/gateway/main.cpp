@@ -5,6 +5,7 @@
 #include "server.h"
 #include "db_pool.h"
 #include "redis_client.h"
+#include "config.h"
 #include "connection_manager.h" // Added
 #include "gateway_service_impl.h" // Added
 #include "service_registry.h" // Added
@@ -15,18 +16,26 @@
 
 int main(int argc, char* argv[]) {
     try {
+        if (!Config::GetInstance().Load("config.json")) {
+            Config::GetInstance().Load("../config.json");
+        }
+        
         auto const address = boost::asio::ip::make_address("0.0.0.0");
-        unsigned short port = 8080;
+        unsigned short port = static_cast<unsigned short>(Config::GetInstance().GetInt("server.port", 8080));
+        
         if(argc > 1) {
             port = static_cast<unsigned short>(std::atoi(argv[1]));
         }
+        
         std::string gateway_id = "gw-" + std::to_string(port);
         int threads = 4;
 
         boost::asio::io_context ioc{threads};
 
         // Initialize Redis for Pub/Sub (Kick logic)
-        RedisClient::GetInstance().Init("tinyim_redis", 6379);
+        std::string redis_host = Config::GetInstance().GetString("redis.host", "127.0.0.1");
+        int redis_port = Config::GetInstance().GetInt("redis.port", 6379);
+        RedisClient::GetInstance().Init(redis_host, redis_port);
         
         // Start Kick Listener Thread
         std::thread subscribe_thread([gateway_id]() {

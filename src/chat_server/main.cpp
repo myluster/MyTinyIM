@@ -6,8 +6,17 @@
 
 #include "service_registry.h" // Added
 
-void RunServer(int port) {
+#include "config.h"
+
+void RunServer() {
+    // Init Config
+    if (!Config::GetInstance().Load("config.json")) {
+        Config::GetInstance().Load("../config.json");
+    }
+
+    int port = Config::GetInstance().GetInt("chat_service.port", 50052);
     std::string server_address = "0.0.0.0:" + std::to_string(port);
+    
     ChatServiceImpl service;
 
     grpc::ServerBuilder builder;
@@ -17,30 +26,49 @@ void RunServer(int port) {
     std::unique_ptr<grpc::Server> server(builder.BuildAndStart());
     spdlog::info("Chat Server listening on {}", server_address);
 
-    // Initialize DB Pool (Read/Write Splitting)
+    // Initialize DB Pool
+    std::string db_host = Config::GetInstance().GetString("mysql.host", "127.0.0.1");
+    int db_port = Config::GetInstance().GetInt("mysql.port", 3306);
+    std::string db_user = Config::GetInstance().GetString("mysql.user", "root");
+    std::string db_pass = Config::GetInstance().GetString("mysql.password", "root");
+    std::string db_name = Config::GetInstance().GetString("mysql.dbname", "tinyim");
+    
+    std::vector<std::string> slaves = Config::GetInstance().GetStringList("mysql.slaves");
+    
     DBPool::GetInstance().Init(
-        "tinyim_mysql_master", 
-        {"tinyim_mysql_slave_1", "tinyim_mysql_slave_2"},
-        3306, "root", "root", "tinyim", 5
+        db_host, 
+        slaves, 
+        db_port, db_user, db_pass, db_name, 5
     );
-    RedisClient::GetInstance().Init("tinyim_redis", 6379);
+    
+    std::string redis_host = Config::GetInstance().GetString("redis.host", "127.0.0.1");
+    int redis_port = Config::GetInstance().GetInt("redis.port", 6379);
+    RedisClient::GetInstance().Init(redis_host, redis_port);
 
     server->Wait();
 }
 
 int main(int argc, char** argv) {
-    // Parse port from args or default
-    int port = 50052;
-    if (argc > 1) port = std::atoi(argv[1]);
+    if (argc > 1) {
+        // Allow overriding port check if needed, but config priority?
+        // Let's stick to config for simplicity or use args to override config?
+        // Ignoring args for consistency with AuthServer logic
+    }
     
-    // Init Service Registry
-    // We need to Init Redis first
-    RedisClient::GetInstance().Init("tinyim_redis", 6379);
+    // Config loaded in RunServer, but we need it for Registry?
+    // Let's load it here.
+    if (!Config::GetInstance().Load("config.json")) {
+         Config::GetInstance().Load("../config.json");
+    }
     
-    // Register Self
-    // Use actual IP in production, here assume local or container IP
-    ServiceRegistry::GetInstance().Register("chat", "127.0.0.1", port);
+    std::string redis_host = Config::GetInstance().GetString("redis.host", "127.0.0.1");
+    int redis_port = Config::GetInstance().GetInt("redis.port", 6379);
+    RedisClient::GetInstance().Init(redis_host, redis_port);
     
-    RunServer(port);
+    // Registry
+    int port = Config::GetInstance().GetInt("chat_service.port", 50052);
+    ServiceRegistry::GetInstance().Register("chat_server", "127.0.0.1", port);
+    
+    RunServer();
     return 0;
 }

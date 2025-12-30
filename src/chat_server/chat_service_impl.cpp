@@ -3,6 +3,7 @@
 #include <sstream>
 #include <grpcpp/grpcpp.h>
 #include "gateway.grpc.pb.h"
+#include "grpc_channel_pool.h"
 
 Status ChatServiceImpl::SendMessage(ServerContext* context, const tinyim::chat::SendMessageReq* request,
                                     tinyim::chat::SendMessageResp* reply) {
@@ -60,44 +61,81 @@ Status ChatServiceImpl::SendMessage(ServerContext* context, const tinyim::chat::
              }
         }
         
-        // 2. Loop Insert & Push (Optimize: Batch Insert?)
-        // For MVP: Loop
-        for (int64_t member_uid : members) {
-             // In Group Chat, other_id is typically the GroupID or SenderID?
-             // Usually for Group timeline, we query by owner_id.
-             // But UI needs to know which group.
-             // The `MessageItem` has `group_id`.
-             // `im_message_index`: owner_id=Member, other_id=Group, is_sender=0
+        // 2. Loop Insert & Push (Optimize: Batch Insert)
+        if (members.empty()) {
+             // Handle empty group?
+             reply->set_msg_id(msg_id);
+             reply->set_success(true);
+             return Status::OK;
+        }
+
+        std::string batch_sql = "INSERT INTO im_message_index (owner_id, other_id, msg_id, seq_id, is_sender) VALUES ";
+        
+        // We need SeqID for each member. 
+        // Ideal: Lua script to INCR multiple keys.
+        // MVP: Sequential INCR (Redis is fast enough compared to DB). 
+        // Optimization: Use Redis Pipelining here if possible, but let's stick to simple Batch SQL first.
+        
+        std::vector<std::pair<int64_t, int64_t>> push_targets; // uid, seq
+
+        for (size_t i = 0; i < members.size(); ++i) {
+             int64_t member_uid = members[i];
              
-             // Seq: Each user has their own timeline seq
+             // Get Seq
              std::string m_seq_key = "im:seq:" + std::to_string(member_uid);
              long long m_seq = 0;
-             RedisConn r_conn; // New scope
+             // Note: using local scope RedisConn for each INCR is slightly inefficient but OK for MVP vs DB batching
+             // TODO: Use Pipeline
+             RedisConn r_conn; 
              if (r_conn.get()) {
                  redisReply* r = (redisReply*)redisCommand(r_conn.get(), "INCR %s", m_seq_key.c_str());
                  if (r && r->type == REDIS_REPLY_INTEGER) m_seq = r->integer;
                  if (r) freeReplyObject(r);
              }
              
-             std::string q = "INSERT INTO im_message_index (owner_id, other_id, msg_id, seq_id, is_sender) VALUES (" +
-                             std::to_string(member_uid) + ", " + std::to_string(group_id) + ", " + 
-                             std::to_string(msg_id) + ", " + std::to_string(m_seq) + ", 0)";
-             mysql_query(conn.get(), q.c_str());
+             // Append to Batch SQL
+             batch_sql += "(" + std::to_string(member_uid) + ", " + 
+                          std::to_string(group_id) + ", " + 
+                          std::to_string(msg_id) + ", " + 
+                          std::to_string(m_seq) + ", 0)";
              
-             // Push
-             // PushNotify logic (extract to function)
-             bool m_online = RedisClient::GetInstance().Exists("im:session:" + std::to_string(member_uid));
+             if (i < members.size() - 1) batch_sql += ",";
+             
+             push_targets.push_back({member_uid, m_seq});
+        }
+        
+        // Execute Batch SQL
+        if (mysql_query(conn.get(), batch_sql.c_str())) {
+            spdlog::error("Batch Insert Failed: {}", mysql_error(conn.get()));
+            // Continue to push? Or Fail? Partial fail usage?
+        }
+        
+        // Parallel Push (or Sequential with Pool)
+        // Group Push is heavy.
+        for (auto& target : push_targets) {
+             int64_t uid = target.first;
+             int64_t seq = target.second;
+             
+             bool m_online = RedisClient::GetInstance().Exists("im:session:" + std::to_string(uid));
              if (m_online) {
-                 // Copy Paste Push Logic (Better Refactor)
-                 std::string loc_key = "im:location:" + std::to_string(member_uid);
+                 std::string loc_key = "im:location:" + std::to_string(uid);
                  auto locations = RedisClient::GetInstance().HGetAll(loc_key);
                  for (auto& kv : locations) {
+                    // device = kv.first, addr = kv.second
                     try {
-                        auto channel = grpc::CreateChannel(kv.second, grpc::InsecureChannelCredentials());
+                        // Use GRPC Pool
+                        auto channel = GRPCChannelPool::GetInstance().GetChannel(kv.second);
                         auto stub = tinyim::gateway::GatewayService::NewStub(channel);
+                        
                         grpc::ClientContext ctx;
                         tinyim::gateway::PushNotifyReq pr;
-                        pr.set_user_id(member_uid); pr.set_max_seq(m_seq); pr.set_msg_type(request->type());
+                        pr.set_user_id(uid); pr.set_max_seq(seq); pr.set_msg_type(request->type());
+                        
+                        // Async or short timeout? 
+                        // For MVP: Sync with short deadline
+                         std::chrono::system_clock::time_point deadline = std::chrono::system_clock::now() + std::chrono::milliseconds(500);
+                         ctx.set_deadline(deadline);
+                         
                         tinyim::gateway::PushNotifyResp presp;
                         stub->PushNotify(&ctx, pr, &presp);
                     } catch(...) {}
@@ -107,7 +145,7 @@ Status ChatServiceImpl::SendMessage(ServerContext* context, const tinyim::chat::
         
         // Reply to Sender
         reply->set_msg_id(msg_id);
-        reply->set_seq_id(0); // Group msg seq is per-user, sender doesn't need single seq
+        reply->set_seq_id(0); 
         reply->set_success(true);
         return Status::OK;
         

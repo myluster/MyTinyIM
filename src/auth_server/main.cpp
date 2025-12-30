@@ -3,9 +3,16 @@
 #include "auth_service_impl.h"
 #include "db_pool.h"
 #include "redis_client.h"
+#include "config.h"
 
 void RunServer() {
-    std::string server_address("0.0.0.0:50051");
+    // Init Config
+    if (!Config::GetInstance().Load("config.json")) {
+        Config::GetInstance().Load("../config.json");
+    }
+
+    int port = Config::GetInstance().GetInt("auth_service.port", 50051);
+    std::string server_address("0.0.0.0:" + std::to_string(port));
     AuthServiceImpl service;
 
     grpc::ServerBuilder builder;
@@ -16,13 +23,21 @@ void RunServer() {
     spdlog::info("Auth Server listening on {}", server_address);
 
     // Initialize DB & Redis
-    // Docker 环境下 host    // Initialize DB Pool (Read/Write Splitting)
+    std::string db_host = Config::GetInstance().GetString("mysql.host", "127.0.0.1");
+    int db_port = Config::GetInstance().GetInt("mysql.port", 3306);
+    std::string db_user = Config::GetInstance().GetString("mysql.user", "root");
+    std::string db_pass = Config::GetInstance().GetString("mysql.password", "root");
+    std::string db_name = Config::GetInstance().GetString("mysql.dbname", "tinyim");
+    
     DBPool::GetInstance().Init(
-        "tinyim_mysql_master", 
-        {"tinyim_mysql_slave_1", "tinyim_mysql_slave_2"},
-        3306, "root", "root", "tinyim", 5
+        db_host, 
+        {}, // Slaves
+        db_port, db_user, db_pass, db_name, 5
     );
-    RedisClient::GetInstance().Init("tinyim_redis", 6379);
+    
+    std::string redis_host = Config::GetInstance().GetString("redis.host", "127.0.0.1");
+    int redis_port = Config::GetInstance().GetInt("redis.port", 6379);
+    RedisClient::GetInstance().Init(redis_host, redis_port);
 
     server->Wait();
 }

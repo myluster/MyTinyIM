@@ -63,14 +63,16 @@ sleep 2
 # Check ports (netstat might not be installed, use simple log check or ps)
 if pgrep -f "gateway_server" > /dev/null; then
     echo "[SUCCESS] Services are UP!"
-    echo "   - Auth Server:    Listening..."
-    echo "   - Chat Server:    Listening..."
-    echo "   - User Server:    Listening..."
+    echo "   - Auth Server:    Listening (Port 50051)"
+    echo "   - Chat Server:    Listening (Port 50052)"
+    echo "   - User Server:    Listening (Port 50053)"
     echo "   - Gateway Server: Port 8080"
+    echo "   - Gateway Server: Port 8081"
 else
     echo "[WARN] Gateway server does not seem to be running."
 fi
 
 echo ""
 echo "Tail logs with:"
-echo "   tail -f logs/gateway_server.log"
+echo "   tail -f logs/gateway_server_8080.log"
+echo "   tail -f logs/gateway_server_8081.log"

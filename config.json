@@ -1,0 +1,28 @@
+{
+    "server": {
+        "port": 8080,
+        "dispatch_port": 8000
+    },
+    "mysql": {
+        "host": "mysql-master",
+        "slaves": [
+            "mysql-slave-1",
+            "mysql-slave-2"
+        ],
+        "port": 3306,
+        "user": "root",
+        "password": "root",
+        "dbname": "tinyim"
+    },
+    "redis": {
+        "host": "redis",
+        "port": 6379,
+        "pwd": ""
+    },
+    "etcd": {
+        "url": "http://etcd:2379"
+    },
+    "service_discovery": {
+        "refresh_interval_ms": 3000
+    }
+}

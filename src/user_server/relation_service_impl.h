@@ -26,4 +26,10 @@ public:
 
     Status GetGroupList(ServerContext* context, const tinyim::relation::GetGroupListReq* request,
                         tinyim::relation::GetGroupListResp* reply) override;
+
+    Status ApplyGroup(ServerContext* context, const tinyim::relation::ApplyGroupReq* request,
+                      tinyim::relation::ApplyGroupResp* reply) override;
+                      
+    Status AcceptGroup(ServerContext* context, const tinyim::relation::AcceptGroupReq* request,
+                       tinyim::relation::AcceptGroupResp* reply) override;
 };

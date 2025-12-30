@@ -94,3 +94,14 @@ CREATE TABLE IF NOT EXISTS `im_group_member` (
   UNIQUE KEY `uk_group_user` (`group_id`, `user_id`),
   KEY `idx_user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='群成员列表';
+
+CREATE TABLE IF NOT EXISTS `im_group_request` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `group_id` BIGINT UNSIGNED NOT NULL,
+  `user_id` BIGINT UNSIGNED NOT NULL,
+  `status` TINYINT NOT NULL DEFAULT 0 COMMENT '0-Pending, 1-Accepted, 2-Rejected',
+  `remark` VARCHAR(64) DEFAULT '',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_group_status` (`group_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='群组申请表';

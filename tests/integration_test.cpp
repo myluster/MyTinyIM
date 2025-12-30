@@ -6,6 +6,9 @@
 #include "redis_client.h"
 #include <chrono>
 #include <spdlog/spdlog.h>
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
 
 class IntegrationTest : public ::testing::Test {
 protected:
@@ -90,27 +93,26 @@ TEST_F(IntegrationTest, Basic_LoadBalancing_Dispatch) {
 
 // 2. Active Logout Test
 TEST_F(IntegrationTest, Basic_Active_Logout) {
-    std::string u = "logout_user";
+    std::string u = "logout_user_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
     TestClient client(host, http_port, ws_port);
     std::string token = client.Login(u, "123");
     client.Connect(client.GetUserId(), token, "PC");
     
-    // Send Logout
-    // Construct JSON body for API logout? 
-    // Wait, the design doc said HTTP Logout.
-    // Let's use the HTTP Logout API directly via helper or add to TestClient?
-    // TestClient::Login uses HttpPost. We can manually call HttpPost-like logic or just verify WS close?
-    // Usually Logout invalidates token.
+    // Send Logout via HTTP
+    {
+        json body = {{"user_id", client.GetUserId()}, {"device", "PC"}};
+        json resp = HttpPost(host, http_port, "/api/logout", body);
+        ASSERT_EQ(resp["code"], 0);
+    }
     
-    // Packet Logout CMD_LOGOUT_REQ (0x1005) is also defined in packet.h?
-    // If Gateway supports 0x1005 then we use that.
-    // Let's check GatewayServiceImpl... It doesn't seem to have CMD_LOGOUT_REQ handler in the shown code.
-    // It only had Login/Heartbeat/Msg/Relation.
-    // So likely Logout is HTTP only.
+    // Verify: Re-login or WebSocket usage might be affected?
+    // Actually Logout just invalidates Token in Redis.
+    // Existing WS connection might stay alive until it expires or server kicks?
+    // The Logout logic executes: Redis Del + Publish Kick.
     
-    // Use HTTP Logout
-    // client.Logout() - need to implement or just skip if not critical. 
-    // Let's assume unimplemented in client helper and skip or add quick check.
+    // So Client should receive kick packet (0x1006)
+    std::string body;
+    ASSERT_TRUE(client.WaitForPacket(0x1006, body, 2000)) << "Client should be kicked after logout";
 }
 
 // 3. Heartbeat Timeout (Server Side Close)
@@ -592,5 +594,95 @@ TEST_F(IntegrationTest, Flow_Group_Chat) {
             if (m.content() == g_msg && m.group_id() == group_id) found = true;
         }
         ASSERT_TRUE(found) << "Group message not found";
+    }
+}
+
+// 9. Group Verification Flow
+TEST_F(IntegrationTest, Flow_Group_Verification) {
+    auto ts = std::chrono::system_clock::now().time_since_epoch().count();
+    std::string uOwner = "grp_O_" + std::to_string(ts);
+    std::string uJoiner = "grp_J_" + std::to_string(ts);
+    
+    TestClient clientO(host, http_port, ws_port);
+    std::string tokenO = clientO.Login(uOwner, "123");
+    clientO.Connect(clientO.GetUserId(), tokenO, "PC");
+    
+    TestClient clientJ(host, http_port, ws_port);
+    std::string tokenJ = clientJ.Login(uJoiner, "123");
+    clientJ.Connect(clientJ.GetUserId(), tokenJ, "PC");
+    
+    int64_t group_id = 0;
+    
+    // A. Owner Created Group
+    {
+        tinyim::relation::CreateGroupReq req;
+        req.set_group_name("Verify Group");
+        req.set_owner_id(clientO.GetUserId());
+        clientO.SendPacket(CMD_GROUP_CREATE_REQ, req);
+        
+        std::string body;
+        ASSERT_TRUE(clientO.WaitForPacket(CMD_GROUP_CREATE_RESP, body));
+        tinyim::relation::CreateGroupResp resp; resp.ParseFromString(body);
+        ASSERT_TRUE(resp.success());
+        group_id = resp.group_id();
+    }
+    
+    // B. Joiner Applies (Verify Logic)
+    int64_t apply_id = 0;
+    {
+        tinyim::relation::ApplyGroupReq req;
+        req.set_group_id(group_id);
+        req.set_remark("Let me in");
+        clientJ.SendPacket(CMD_GROUP_APPLY_REQ, req);
+        
+        std::string body;
+        ASSERT_TRUE(clientJ.WaitForPacket(CMD_GROUP_APPLY_RESP, body));
+        tinyim::relation::ApplyGroupResp resp; resp.ParseFromString(body);
+        ASSERT_TRUE(resp.success());
+        apply_id = resp.apply_id();
+    }
+    
+    // C. Owner Receives Notification (Friend Req Type used for now)
+    {
+        std::string body;
+        ASSERT_TRUE(clientO.WaitForPacket(CMD_MSG_PUSH_NOTIFY, body));
+    }
+    
+    // D. Owner Accepts
+    {
+        tinyim::relation::AcceptGroupReq req;
+        req.set_group_id(group_id);
+        req.set_requester_id(clientJ.GetUserId());
+        req.set_apply_id(apply_id);
+        req.set_accept(true);
+        clientO.SendPacket(CMD_GROUP_ACCEPT_REQ, req);
+        
+        std::string body;
+        ASSERT_TRUE(clientO.WaitForPacket(CMD_GROUP_ACCEPT_RESP, body));
+        tinyim::relation::AcceptGroupResp resp; resp.ParseFromString(body);
+        ASSERT_TRUE(resp.success());
+    }
+    
+    // E. Joiner Receives Notification
+    {
+        std::string body;
+        ASSERT_TRUE(clientJ.WaitForPacket(CMD_MSG_PUSH_NOTIFY, body));
+        tinyim::chat::MsgPushNotify n; n.ParseFromString(body);
+        ASSERT_EQ(n.type(), tinyim::chat::SYSTEM);
+    }
+    
+    // F. Verify Joiner is in Group (Send Msg)
+    // Wait for consistency
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    {
+        tinyim::chat::SendMessageReq req;
+        req.set_group_id(group_id);
+        req.set_content("I'm in!");
+        clientJ.SendPacket(CMD_MSG_SEND_REQ, req);
+        
+        std::string body;
+        ASSERT_TRUE(clientJ.WaitForPacket(CMD_MSG_SEND_RESP, body));
+        tinyim::chat::SendMessageResp resp; resp.ParseFromString(body);
+        ASSERT_TRUE(resp.success());
     }
 }
